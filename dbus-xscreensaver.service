@@ -1,0 +1,21 @@
+[Unit]
+Description=DBUS xscreensaver compatibility layer
+PartOf=graphical-session.target
+
+[Service]
+# FIXME: Can this be turned into a bus-activatable service?
+Type=dbus
+BusName=org.freedesktop.ScreenSaver
+SyslogIdentifier=dbus-xscreensaver
+# Python3 defaults to quite a large buffer for stdout/stderr.
+# This makes the journal significantly less useful for debugging because the log messages don't appear immediately.
+Environment=PYTHONUNBUFFERED=LiterallyAnyNonZeroString
+ExecStart=%h/vcs/misc-scripts/dbus-xscreensaver.py
+
+## FIXME: these are copied from most of PrisonPC's systemd jobs, but apparently are "NOT APPROPRIATE for" any of them
+Restart=on-failure
+RestartSec=30s
+StartLimitBurst=0
+
+[Install]
+WantedBy=default.target
