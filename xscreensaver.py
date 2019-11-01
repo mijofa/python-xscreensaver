@@ -38,7 +38,27 @@ class XSS_worker():
         ## Set the event_mask se that responses can be caught
         self.xss_window.change_attributes(event_mask=Xlib.X.PropertyChangeMask)
 
-    def _get_xscreensaver_response(self):
+    def _send_command(self, atom_name):
+        Xevent = Xlib.protocol.event.ClientMessage(
+            display=self.display,
+            window=self.xss_window,
+            client_type=self.display.intern_atom("SCREENSAVER", False),
+            # In the C code the last [0, 0] happened implicitly, Python's xlib doesn't cope well with them being left out though.
+            # The first [0, 0] was set according to certain other arguments, but for DEACTIVATE was always [0, 0]
+            data=(32, [self.display.intern_atom(atom_name, False), 0, 0, 0, 0]),
+        )
+        self.display.send_event(destination=Xevent.window,
+                                propagate=False,
+                                event_mask=0,
+                                event=Xevent,
+                                # FIXME: Should raise an exception here
+                                onerror=lambda err: print('ERROR:', err, file=sys.stderr, flush=True))
+
+        # FIXME: Does every command send a response?
+        #        Should I leave this part for the parent function?
+        return self._get_response()
+
+    def _get_response(self):
         # NOTE: I've already set the necessary event mask for the xscreensaver window object to include Xlib.X.PropertyChangeMask
         response = None  # So the assert below actually triggers rather than a UnboundLocalError
         timeout = time.monotonic() + 1
@@ -56,7 +76,7 @@ class XSS_worker():
                             Xlib.Xatom.STRING)
                         break
         assert response, "No response recieved"
-        return response.value
+        return str(response.value).strip()
 
     def get_active(self):
         status = self.display.screen().root.get_full_property(
@@ -68,31 +88,15 @@ class XSS_worker():
         else:
             return False
 
-    def _send_command(self, atom_name):
-        Xevent = Xlib.protocol.event.ClientMessage(
-            display=self.display,
-            window=self.xss_window,
-            client_type=self.display.intern_atom("SCREENSAVER", False),
-            # In the C code the last [0, 0] happened implicitly, Python's xlib doesn't cope well with them being left out though.
-            # The first [0, 0] was set according to certain other arguments, but for DEACTIVATE was always [0, 0]
-            data=(32, [self.display.intern_atom(atom_name, False), 0, 0, 0, 0]),
-        )
-        self.display.send_event(destination=Xevent.window,
-                                propagate=False,
-                                event_mask=0,
-                                event=Xevent,
-                                # FIXME: Should raise an exception here
-                                onerror=lambda err: print('ERROR:', err, file=sys.stderr, flush=True))
-
-        return self._get_xscreensaver_response()
-
     def activate(self):
         """
         Tell xscreensaver to turn on immediately (that is, blank the screen, as
         if the user had been idle for long enough.) The screensaver will
         deactivate as soon as there is any user activity, as usual.
         """
-        self._send_command("ACTIVATE")
+        response = self._send_command("ACTIVATE")
+        assert response in ('activating.', 'already active.')
+        return response
 
     def deactivate(self):
         """
@@ -105,7 +109,9 @@ class XSS_worker():
         countdown (so, issuing the -deactivate command periodically is one way
         to prevent the screen from blanking.)
         """
-        self._send_command("DEACTIVATE")
+        response = self._send_command("DEACTIVATE")
+        assert response in ('deactivating.', 'not active: idle timer reset.')
+        return response
 
     def lock(self):
         """
@@ -114,4 +120,6 @@ class XSS_worker():
         not the default (that is, even if xscreensaver's lock resource is
         false, and even if the lockTimeout resource is non-zero.)
         """
-        self._send_command("LOCK")
+        response = self._send_command("LOCK")
+        assert response in ('activating and locking.', 'locking.', 'already locked.')
+        return response
